@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Positioning Tool</title>
+    <style>
+        /* Previous styles remain the same until canvas-container */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 24px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .upload-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px dashed #ccc;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            max-width: 1028px;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+            overflow: hidden;
+            cursor: grab; /* New: shows grabbable cursor */
+        }
+
+        .canvas-container.grabbing {
+            cursor: grabbing; /* New: shows grabbing cursor when dragging */
+        }
+
+        .canvas-container::before {
+            content: "";
+            display: block;
+            padding-top: 100%;
+        }
+
+        #imageCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        /* Helper text for drag instruction */
+        .drag-instruction {
+            text-align: center;
+            color: #666;
+            margin: 10px 0;
+            font-style: italic;
+        }
+
+        /* Rest of the previous styles remain the same */
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .control-group {
+            margin: 15px 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .slider-container {
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #ddd;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+
+        .movement-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            gap: 5px;
+            justify-content: center;
+            margin: 10px auto;
+        }
+
+        .movement-controls button {
+            padding: 15px;
+            font-size: 20px;
+        }
+
+        .empty-cell {
+            visibility: hidden;
+        }
+
+        @media (max-width: 600px) {
+            .movement-controls {
+                grid-template-columns: repeat(3, 70px);
+            }
+
+            .movement-controls button {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image Positioning Tool</h1>
+        
+        <div class="upload-section">
+            <input type="file" id="imageInput" accept="image/*">
+            <p>Upload your image to begin</p>
+        </div>
+
+        <div class="drag-instruction">
+            Drag the image with mouse or touch to position it
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <div class="slider-container">
+                    <label for="scaleRange">Scale:</label>
+                    <input type="range" id="scaleRange" min="0.1" max="2" step="0.1" value="1">
+                    <span id="scaleValue">1x</span>
+                </div>
+            </div>
+            
+            <div class="movement-controls">
+                <div class="empty-cell"></div>
+                <button id="moveUp">↑</button>
+                <div class="empty-cell"></div>
+                <button id="moveLeft">←</button>
+                <div class="empty-cell"></div>
+                <button id="moveRight">→</button>
+                <div class="empty-cell"></div>
+                <button id="moveDown">↓</button>
+                <div class="empty-cell"></div>
+            </div>
+
+            <div class="control-group">
+                <button id="downloadBtn" disabled>Download Merged Image</button>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="imageCanvas" width="1028" height="1028"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('imageCanvas');
+        const canvasContainer = canvas.parentElement;
+        const ctx = canvas.getContext('2d');
+        const imageInput = document.getElementById('imageInput');
+        const scaleRange = document.getElementById('scaleRange');
+        const scaleValue = document.getElementById('scaleValue');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        let userImage = null;
+        let frameImage = new Image();
+        frameImage.src = './Designer (3).png';
+        
+        let imageX = 0;
+        let imageY = 0;
+        let scale = 1;
+        let moveStep = 10;
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let lastX = 0;
+        let lastY = 0;
+
+        // Mouse Events
+        canvas.addEventListener('mousedown', handleDragStart);
+        document.addEventListener('mousemove', handleDragMove);
+        document.addEventListener('mouseup', handleDragEnd);
+
+        // Touch Events
+        canvas.addEventListener('touchstart', handleTouchStart);
+        canvas.addEventListener('touchmove', handleTouchMove);
+        canvas.addEventListener('touchend', handleDragEnd);
+
+        function handleDragStart(e) {
+            if (!userImage) return;
+            
+            isDragging = true;
+            canvasContainer.classList.add('grabbing');
+            
+            if (e.type === 'mousedown') {
+                startX = e.clientX - imageX;
+                startY = e.clientY - imageY;
+            }
+        }
+
+        function handleDragMove(e) {
+            if (!isDragging) return;
+            
+            e.preventDefault();
+            
+            if (e.type === 'mousemove') {
+                imageX = e.clientX - startX;
+                imageY = e.clientY - startY;
+            }
+            
+            drawImages();
+        }
+
+        function handleDragEnd() {
+            isDragging = false;
+            canvasContainer.classList.remove('grabbing');
+        }
+
+        function handleTouchStart(e) {
+            if (!userImage) return;
+            
+            isDragging = true;
+            const touch = e.touches[0];
+            lastX = touch.clientX;
+            lastY = touch.clientY;
+        }
+
+        function handleTouchMove(e) {
+            if (!isDragging) return;
+            
+            e.preventDefault();
+            const touch = e.touches[0];
+            
+            const deltaX = touch.clientX - lastX;
+            const deltaY = touch.clientY - lastY;
+            
+            imageX += deltaX;
+            imageY += deltaY;
+            
+            lastX = touch.clientX;
+            lastY = touch.clientY;
+            
+            drawImages();
+        }
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            
+            canvas.style.width = containerWidth + 'px';
+            canvas.style.height = containerHeight + 'px';
+            
+            moveStep = containerWidth / 100;
+            
+            drawImages();
+        }
+
+        function drawImages() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (userImage) {
+                ctx.save();
+                ctx.translate(imageX + userImage.width * scale / 2, imageY + userImage.height * scale / 2);
+                ctx.scale(scale, scale);
+                ctx.drawImage(userImage, -userImage.width / 2, -userImage.height / 2);
+                ctx.restore();
+            }
+            
+            ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
+        }
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    userImage = new Image();
+                    userImage.onload = () => {
+                        imageX = (canvas.width - userImage.width) / 2;
+                        imageY = (canvas.height - userImage.height) / 2;
+                        drawImages();
+                        downloadBtn.disabled = false;
+                    };
+                    userImage.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        scaleRange.addEventListener('input', (e) => {
+            scale = parseFloat(e.target.value);
+            scaleValue.textContent = scale.toFixed(1) + 'x';
+            drawImages();
+        });
+
+        document.getElementById('moveLeft').addEventListener('click', () => {
+            imageX -= moveStep;
+            drawImages();
+        });
+
+        document.getElementById('moveRight').addEventListener('click', () => {
+            imageX += moveStep;
+            drawImages();
+        });
+
+        document.getElementById('moveUp').addEventListener('click', () => {
+            imageY -= moveStep;
+            drawImages();
+        });
+
+        document.getElementById('moveDown').addEventListener('click', () => {
+            imageY += moveStep;
+            drawImages();
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'merged-image.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        });
+
+        frameImage.onload = () => {
+            resizeCanvas();
+        };
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+    </script>
+</body>
+</html>
